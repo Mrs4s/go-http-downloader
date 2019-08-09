@@ -2,7 +2,6 @@ package httpDownloader
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -15,6 +14,8 @@ type DownloaderClient struct {
 	Speed          int64
 	DownloadedSize int64
 	Downloading    bool
+	Failed         bool
+	FailedMessage  string
 	Info           *DownloaderInfo
 
 	onCompleted func()
@@ -30,10 +31,7 @@ func NewClient(info *DownloaderInfo) *DownloaderClient {
 
 func (client *DownloaderClient) BeginDownload() error {
 	if IsDir(client.Info.TargetFile) {
-		return errors.New("target file cannot be dir.")
-	}
-	if PathExists(client.Info.TargetFile) {
-		return errors.New("target file already exists.")
+		return errors.New("target file cannot be dir")
 	}
 	go func() {
 		client.Downloading = true
@@ -47,6 +45,7 @@ func (client *DownloaderClient) BeginDownload() error {
 			block := client.Info.getNextBlockN()
 			if block != -1 {
 				client.Info.BlockList[block].Downloading = true
+				client.Info.BlockList[block].retryCount = 0
 				go client.Info.BlockList[block].download(client, client.Info.Uris[0], ch) //TODO: auto switch uri
 			}
 		}
@@ -68,6 +67,7 @@ func (client *DownloaderClient) BeginDownload() error {
 					continue
 				}
 				client.Info.BlockList[nextBlock].Downloading = true
+				client.Info.BlockList[nextBlock].retryCount = 0
 				go client.Info.BlockList[nextBlock].download(client, client.Info.Uris[0], ch)
 			}
 			close(ch)
@@ -75,7 +75,7 @@ func (client *DownloaderClient) BeginDownload() error {
 		go func() {
 			for client.Downloading {
 				oldSize := client.DownloadedSize
-				time.Sleep(time.Duration(1)*time.Second)
+				time.Sleep(time.Duration(1) * time.Second)
 				client.Speed = client.DownloadedSize - oldSize
 			}
 		}()
@@ -89,7 +89,7 @@ func (block *DownloadBlock) download(client *DownloaderClient, uri string, ch ch
 		Transport: &http.Transport{
 			MaxConnsPerHost:     0,
 			MaxIdleConns:        0,
-			MaxIdleConnsPerHost: 0,
+			MaxIdleConnsPerHost: 999,
 		},
 	}
 	if err != nil {
@@ -126,9 +126,16 @@ func (block *DownloadBlock) download(client *DownloaderClient, uri string, ch ch
 	var buffer = make([]byte, 1024)
 	i, err := resp.Body.Read(buffer)
 	for client.Downloading {
-		if (err != nil && err == io.EOF) || block.BeginOffset > block.EndOffset {
-			block.Completed = true
-			break
+		if err != nil && err != io.EOF {
+			if block.retryCount < 5 {
+				block.retryCount++
+				block.download(client, uri, ch)
+				return
+			}
+			client.callFailed(err)
+			block.Downloading = false
+			ch <- false
+			return
 		}
 		i64 := int64(len(buffer[:i]))
 		needSize := block.EndOffset + 1 - block.BeginOffset
@@ -138,11 +145,18 @@ func (block *DownloadBlock) download(client *DownloaderClient, uri string, ch ch
 		}
 		_, e := file.Write(buffer[:i64])
 		if e != nil {
-			fmt.Println(e.Error())
+			client.callFailed(e)
+			block.Downloading = false
+			ch <- false
+			return
 		}
 		block.BeginOffset += i64
 		block.DownloadedSize += i64
 		client.DownloadedSize += i64
+		if err == io.EOF || block.BeginOffset > block.EndOffset {
+			block.Completed = true
+			break
+		}
 		i, err = resp.Body.Read(buffer)
 	}
 	block.Downloading = false
@@ -158,7 +172,9 @@ func (client *DownloaderClient) OnFailed(fn func(err error)) {
 }
 
 func (client *DownloaderClient) callFailed(err error) {
-	if client.onFailed != nil {
+	if client.onFailed != nil && !client.Failed {
+		client.Failed = true
+		client.FailedMessage = err.Error()
 		client.onFailed(err)
 	}
 }

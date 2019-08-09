@@ -21,11 +21,13 @@ type DownloadBlock struct {
 	DownloadedSize int64 `json:"downloaded_size"`
 	Downloading    bool  `json:"-"`
 	Completed      bool  `json:"completed"`
+
+	retryCount int `json:"-"`
 }
 
 func (info *DownloaderInfo) init() error {
 	if info.Uris == nil || len(info.Uris) == 0 {
-		return errors.New("uris cannot be nil.")
+		return errors.New("uris cannot be nil")
 	}
 	info.BlockList = []DownloadBlock{}
 	req, err := http.NewRequest("GET", info.Uris[0], nil)
@@ -34,7 +36,7 @@ func (info *DownloaderInfo) init() error {
 	}
 	if info.Headers != nil {
 		for k, v := range info.Headers {
-			req.Header[k]=[]string{v}
+			req.Header[k] = []string{v}
 		}
 	}
 	resp, err := http.DefaultClient.Do(req)
@@ -58,18 +60,18 @@ func (info *DownloaderInfo) init() error {
 	return nil
 }
 
-func (info *DownloaderInfo) getNextBlockN() int{
+func (info *DownloaderInfo) getNextBlockN() int {
 	for i, block := range info.BlockList {
-		if !block.Completed && !block.Downloading{
+		if !block.Completed && !block.Downloading {
 			return i
 		}
 	}
 	return -1
 }
 
-func (info *DownloaderInfo) allDownloaded() bool{
+func (info *DownloaderInfo) allDownloaded() bool {
 	for _, block := range info.BlockList {
-		if !block.Completed{
+		if !block.Completed || block.Downloading {
 			return false
 		}
 	}
@@ -78,7 +80,7 @@ func (info *DownloaderInfo) allDownloaded() bool{
 
 func NewDownloaderInfo(uris []string, targetFile string, blockSize int64, threadCount int, headers map[string]string) (*DownloaderInfo, error) {
 	if blockSize <= 0 {
-		blockSize = 1024 * 1024 * 10 //10MB
+		blockSize = 1024 * 1024 * 100 //100MB
 	}
 	if threadCount <= 0 {
 		threadCount = 1
