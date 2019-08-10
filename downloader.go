@@ -14,6 +14,7 @@ type DownloaderClient struct {
 	Speed          int64
 	DownloadedSize int64
 	Downloading    bool
+	Completed      bool
 	Failed         bool
 	FailedMessage  string
 	Info           *DownloaderInfo
@@ -63,6 +64,7 @@ func (client *DownloaderClient) BeginDownload() error {
 						if client.onCompleted != nil {
 							client.onCompleted()
 						}
+						client.Completed = true
 					}
 					continue
 				}
