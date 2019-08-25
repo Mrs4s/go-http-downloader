@@ -1,6 +1,7 @@
 package httpDownloader
 
 import (
+	"bufio"
 	"errors"
 	"io"
 	"math"
@@ -19,6 +20,7 @@ type DownloaderClient struct {
 	FailedMessage  string
 	Info           *DownloaderInfo
 
+	client      *http.Client
 	onCompleted func()
 	onFailed    func(err error)
 }
@@ -26,6 +28,13 @@ type DownloaderClient struct {
 func NewClient(info *DownloaderInfo) *DownloaderClient {
 	client := &DownloaderClient{
 		Info: info,
+		client: &http.Client{
+			Transport: &http.Transport{
+				MaxConnsPerHost:     0,
+				MaxIdleConns:        0,
+				MaxIdleConnsPerHost: 999,
+			},
+		},
 	}
 	return client
 }
@@ -87,13 +96,6 @@ func (client *DownloaderClient) BeginDownload() error {
 
 func (block *DownloadBlock) download(client *DownloaderClient, uri string, ch chan bool) {
 	req, err := http.NewRequest("GET", uri, nil)
-	httpClient := http.Client{
-		Transport: &http.Transport{
-			MaxConnsPerHost:     0,
-			MaxIdleConns:        0,
-			MaxIdleConnsPerHost: 999,
-		},
-	}
 	if err != nil {
 		client.callFailed(err)
 		ch <- false
@@ -107,6 +109,8 @@ func (block *DownloadBlock) download(client *DownloaderClient, uri string, ch ch
 	}
 	defer file.Close()
 	_, err = file.Seek(block.BeginOffset, 0)
+	writer := bufio.NewWriter(file)
+	defer writer.Flush()
 	if err != nil {
 		client.callFailed(err)
 		ch <- false
@@ -118,7 +122,7 @@ func (block *DownloadBlock) download(client *DownloaderClient, uri string, ch ch
 		}
 	}
 	req.Header.Set("range", "bytes="+strconv.FormatInt(block.BeginOffset, 10)+"-"+strconv.FormatInt(block.EndOffset, 10))
-	resp, err := httpClient.Do(req)
+	resp, err := client.client.Do(req)
 	if err != nil {
 		client.callFailed(err)
 		ch <- false
@@ -145,7 +149,7 @@ func (block *DownloadBlock) download(client *DownloaderClient, uri string, ch ch
 			i64 = needSize
 			err = io.EOF
 		}
-		_, e := file.Write(buffer[:i64])
+		_, e := writer.Write(buffer[:i64])
 		if e != nil {
 			client.callFailed(e)
 			block.Downloading = false
