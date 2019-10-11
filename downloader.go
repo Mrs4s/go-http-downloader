@@ -98,6 +98,7 @@ func (client *DownloaderClient) BeginDownload() error {
 					client.RefreshTime = 3 * 60 * 1000 //3 min
 				}
 				ticker := time.NewTicker(time.Millisecond * time.Duration(client.RefreshTime)).C
+				client.Info.Uris = client.RefreshFunc()
 				for range ticker {
 					if !client.Downloading {
 						break
