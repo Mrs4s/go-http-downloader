@@ -19,6 +19,8 @@ type DownloaderClient struct {
 	Failed         bool
 	FailedMessage  string
 	Info           *DownloaderInfo
+	RefreshFunc    func() []string
+	RefreshTime    int64
 
 	client      *http.Client
 	onCompleted func()
@@ -88,6 +90,20 @@ func (client *DownloaderClient) BeginDownload() error {
 				oldSize := client.DownloadedSize
 				time.Sleep(time.Duration(1) * time.Second)
 				client.Speed = client.DownloadedSize - oldSize
+			}
+		}()
+		go func() {
+			if client.RefreshFunc != nil {
+				if client.RefreshTime == 0 {
+					client.RefreshTime = 3 * 60 * 1000 //3 min
+				}
+				ticker := time.NewTicker(time.Millisecond * time.Duration(client.RefreshTime)).C
+				for range ticker {
+					if !client.Downloading {
+						break
+					}
+					client.Info.Uris = client.RefreshFunc()
+				}
 			}
 		}()
 	}()
