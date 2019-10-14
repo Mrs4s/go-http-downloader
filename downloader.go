@@ -93,10 +93,7 @@ func (client *DownloaderClient) BeginDownload() error {
 			}
 		}()
 		go func() {
-			if client.RefreshFunc != nil {
-				if client.RefreshTime == 0 {
-					client.RefreshTime = 3 * 60 * 1000 //3 min
-				}
+			if client.RefreshFunc != nil && client.RefreshTime != 0 {
 				ticker := time.NewTicker(time.Millisecond * time.Duration(client.RefreshTime)).C
 				client.Info.Uris = client.RefreshFunc()
 				for range ticker {
@@ -146,6 +143,18 @@ func (block *DownloadBlock) download(client *DownloaderClient, uri string, ch ch
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if client.RefreshFunc != nil && block.retryCount < 5 {
+			block.retryCount++
+			client.Info.Uris = client.RefreshFunc()
+			block.download(client, client.Info.Uris[0], ch)
+			return
+		}
+		block.Downloading = false
+		client.callFailed(errors.New("response status unsuccessful: " + strconv.FormatInt(int64(resp.StatusCode), 10)))
+		ch <- false
+		return
+	}
 	var buffer = make([]byte, 1024)
 	i, err := resp.Body.Read(buffer)
 	for client.Downloading {
@@ -155,11 +164,12 @@ func (block *DownloadBlock) download(client *DownloaderClient, uri string, ch ch
 				block.download(client, uri, ch)
 				return
 			}
-			client.callFailed(err)
 			block.Downloading = false
+			client.callFailed(err)
 			ch <- false
 			return
 		}
+		block.retryCount = 0
 		i64 := int64(len(buffer[:i]))
 		needSize := block.EndOffset + 1 - block.BeginOffset
 		if i64 > needSize {
@@ -168,8 +178,8 @@ func (block *DownloadBlock) download(client *DownloaderClient, uri string, ch ch
 		}
 		_, e := writer.Write(buffer[:i64])
 		if e != nil {
-			client.callFailed(e)
 			block.Downloading = false
+			client.callFailed(e)
 			ch <- false
 			return
 		}
@@ -184,6 +194,12 @@ func (block *DownloadBlock) download(client *DownloaderClient, uri string, ch ch
 	}
 	block.Downloading = false
 	ch <- true
+}
+
+func (client *DownloaderClient) Pause() {
+	if client.Downloading {
+		client.Downloading = false
+	}
 }
 
 func (client *DownloaderClient) OnCompleted(fn func()) {
