@@ -39,6 +39,7 @@ func (info *DownloaderInfo) init() error {
 			req.Header[k] = []string{v}
 		}
 	}
+	req.Header.Add("Range","bytes=0-")
 	resp, err := http.DefaultClient.Do(req)
 	defer resp.Body.Close()
 	if err != nil {
