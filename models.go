@@ -39,12 +39,12 @@ func (info *DownloaderInfo) init() error {
 			req.Header[k] = []string{v}
 		}
 	}
-	req.Header.Add("Range","bytes=0-")
+	req.Header.Add("Range", "bytes=0-")
 	resp, err := http.DefaultClient.Do(req)
-	defer resp.Body.Close()
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 	info.ContentSize = resp.ContentLength
 	var temp int64
 	for temp+info.BlockSize < info.ContentSize {
@@ -56,7 +56,7 @@ func (info *DownloaderInfo) init() error {
 	}
 	info.BlockList = append(info.BlockList, DownloadBlock{
 		BeginOffset: temp,
-		EndOffset:   info.ContentSize,
+		EndOffset:   info.ContentSize - 1,
 	})
 	return nil
 }
