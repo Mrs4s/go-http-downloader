@@ -30,22 +30,36 @@ func (info *DownloaderInfo) init() error {
 		return errors.New("uris cannot be nil")
 	}
 	info.BlockList = []DownloadBlock{}
-	req, err := http.NewRequest("GET", info.Uris[0], nil)
+	req, err := http.NewRequest("HEAD", info.Uris[0], nil)
 	if err != nil {
 		return err
 	}
 	if info.Headers != nil {
 		for k, v := range info.Headers {
 			req.Header[k] = []string{v}
+			if k == "host" {
+				req.Host = v
+			}
 		}
 	}
-	req.Header.Add("Range", "bytes=0-")
+	//req.Header.Add("Range", "bytes=0-")
 	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode > 300 {
+		req.Method = "GET"
+		req.Header.Add("Range", "bytes=0-")
+		resp, err = http.DefaultClient.Do(req)
+	}
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 	info.ContentSize = resp.ContentLength
+	if info.ContentSize == 0 {
+		return errors.New("error size")
+	}
 	var temp int64
 	for temp+info.BlockSize < info.ContentSize {
 		info.BlockList = append(info.BlockList, DownloadBlock{

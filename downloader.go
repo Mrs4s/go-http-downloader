@@ -133,6 +133,9 @@ func (block *DownloadBlock) download(client *DownloaderClient, uri string, ch ch
 	if client.Info.Headers != nil {
 		for k, v := range client.Info.Headers {
 			req.Header[k] = []string{v}
+			if k == "host" {
+				req.Host = v
+			}
 		}
 	}
 	req.Header.Set("range", "bytes="+strconv.FormatInt(block.BeginOffset, 10)+"-"+strconv.FormatInt(block.EndOffset, 10))
