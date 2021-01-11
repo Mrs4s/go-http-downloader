@@ -48,6 +48,7 @@ func (info *DownloaderInfo) init() error {
 		return err
 	}
 	if resp.StatusCode > 300 {
+		resp.Body.Close()
 		req.Method = "GET"
 		req.Header.Add("Range", "bytes=0-")
 		resp, err = http.DefaultClient.Do(req)
